@@ -12,8 +12,9 @@ RUN apk add --no-cache \
 # Copy root filesystem (s6-overlay scripts)
 COPY rootfs /
 
-# Ensure all s6 scripts are executable
-RUN chmod +x /etc/cont-init.d/*.py \
+# Remove any __pycache__ that slipped in and set permissions
+RUN find /etc/cont-init.d /etc/cont-finish.d /etc/services.d -name '__pycache__' -exec rm -rf {} + 2>/dev/null; \
+    chmod +x /etc/cont-init.d/*.py \
     && chmod +x /etc/cont-finish.d/*.py \
     && chmod +x /etc/services.d/*/run \
     && chmod +x /etc/services.d/*/finish
