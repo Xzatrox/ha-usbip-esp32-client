@@ -7,6 +7,7 @@ RUN apk add --no-cache \
     py3-flask \
     linux-tools-usbip \
     kmod \
+    hwids-usb \
     && rm -rf /var/cache/apk/*
 
 # Copy root filesystem (s6-overlay scripts)
