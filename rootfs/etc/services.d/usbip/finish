@@ -1,0 +1,20 @@
+#!/command/with-contenv python3
+"""Finish script for the usbip (attach) service.
+
+Logs the exit code of the terminated service and returns 0
+so that s6-overlay proceeds with automatic service restart.
+
+Requirements: 12.2, 12.5
+"""
+
+import sys
+
+from usbip_addon.logging_config import configure_logging, get_logger
+
+configure_logging("info")
+logger = get_logger("usbip_run")
+
+exit_code = sys.argv[1] if len(sys.argv) > 1 else "unknown"
+logger.info("usbip service exited with code %s", exit_code)
+
+sys.exit(0)

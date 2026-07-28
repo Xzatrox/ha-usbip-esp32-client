@@ -1,0 +1,222 @@
+/* USB/IP ESP32 Client - WebUI Styles */
+
+:root {
+    --bg: #1c1c1c;
+    --surface: #2a2a2a;
+    --border: #3a3a3a;
+    --text: #e0e0e0;
+    --text-muted: #999;
+    --primary: #4a9eff;
+    --ok: #4caf50;
+    --warning: #ff9800;
+    --error: #f44336;
+    --radius: 4px;
+}
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.5;
+    padding: 0;
+}
+
+header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 12px 20px;
+}
+
+header h1 {
+    font-size: 1.2em;
+    font-weight: 600;
+    margin-bottom: 8px;
+}
+
+nav {
+    display: flex;
+    gap: 4px;
+}
+
+nav a {
+    color: var(--text-muted);
+    text-decoration: none;
+    padding: 6px 12px;
+    border-radius: var(--radius);
+    font-size: 0.9em;
+}
+
+nav a:hover {
+    color: var(--text);
+    background: var(--border);
+}
+
+nav a.active {
+    color: var(--primary);
+    background: rgba(74, 158, 255, 0.1);
+}
+
+main {
+    padding: 20px;
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+h2 {
+    font-size: 1.1em;
+    font-weight: 600;
+    margin-bottom: 16px;
+}
+
+h3 {
+    font-size: 0.95em;
+    font-weight: 600;
+    margin-bottom: 8px;
+    color: var(--text-muted);
+}
+
+section {
+    margin-bottom: 24px;
+}
+
+/* Tables */
+table {
+    width: 100%;
+    border-collapse: collapse;
+    background: var(--surface);
+    border-radius: var(--radius);
+    overflow: hidden;
+    font-size: 0.9em;
+}
+
+thead {
+    background: var(--border);
+}
+
+th {
+    text-align: left;
+    padding: 8px 12px;
+    font-weight: 600;
+    font-size: 0.85em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+}
+
+td {
+    padding: 8px 12px;
+    border-top: 1px solid var(--border);
+}
+
+/* Status indicators */
+.status-ok {
+    color: var(--ok);
+    font-weight: 600;
+}
+
+.status-error {
+    color: var(--error);
+    font-weight: 600;
+}
+
+/* Event row colors */
+.event-ok td {
+    border-left: 3px solid var(--ok);
+}
+
+.event-error td {
+    border-left: 3px solid var(--error);
+}
+
+.event-warning td {
+    border-left: 3px solid var(--warning);
+}
+
+/* Buttons */
+button {
+    background: var(--primary);
+    color: #fff;
+    border: none;
+    padding: 4px 10px;
+    border-radius: var(--radius);
+    font-size: 0.85em;
+    cursor: pointer;
+}
+
+button:hover {
+    opacity: 0.85;
+}
+
+/* Result messages */
+.result-ok {
+    color: var(--ok);
+    padding: 8px;
+    margin-top: 12px;
+    font-size: 0.9em;
+}
+
+.result-error {
+    color: var(--error);
+    padding: 8px;
+    margin-top: 12px;
+    font-size: 0.9em;
+}
+
+.hidden {
+    display: none;
+}
+
+/* Flapping warnings */
+.flap-warning {
+    background: rgba(255, 152, 0, 0.1);
+    border-left: 3px solid var(--warning);
+    padding: 8px 12px;
+    margin-bottom: 8px;
+    border-radius: var(--radius);
+    font-size: 0.9em;
+}
+
+/* Log viewer */
+.log-viewer {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 12px;
+    font-family: "Fira Code", "Cascadia Code", monospace;
+    font-size: 0.8em;
+    line-height: 1.6;
+    max-height: 600px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+
+#log-controls {
+    margin-bottom: 8px;
+    font-size: 0.9em;
+}
+
+#log-controls label {
+    color: var(--text-muted);
+    cursor: pointer;
+}
+
+.loading {
+    color: var(--text-muted);
+    font-style: italic;
+}
+
+/* Footer */
+footer {
+    text-align: center;
+    padding: 16px;
+    color: var(--text-muted);
+    font-size: 0.8em;
+    border-top: 1px solid var(--border);
+    margin-top: 40px;
+}

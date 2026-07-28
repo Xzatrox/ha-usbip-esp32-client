@@ -1,0 +1,62 @@
+---
+name: "USB/IP ESP32 Client"
+description: "Attach remote USB devices from ESP32-S3 USB/IP servers over WiFi"
+version: "0.1.0"
+slug: "usbip-esp32-client"
+url: "https://github.com/home-assistant/addons"
+startup: "services"
+boot: "auto"
+
+arch:
+  - aarch64
+  - amd64
+
+privileged:
+  - NET_ADMIN
+  - SYS_ADMIN
+  - SYS_MODULE
+  - SYS_RAWIO
+
+devices:
+  - /dev/vhci
+
+kernel_modules:
+  - vhci-hcd
+
+apparmor: true
+hassio_api: true
+homeassistant_api: true
+ingress: true
+ingress_port: 8099
+
+options:
+  log_level: "info"
+  monitor_interval: 30
+  reattach_retries: 3
+  attach_delay: 2
+  notifications_enabled: true
+  flap_warning_threshold: 3
+  flap_critical_threshold: 5
+  flap_window_seconds: 600
+  flap_clear_seconds: 900
+  devices:
+    - server: "192.168.1.100"
+      name: "Zigbee Coordinator"
+      port: 3240
+      busid: "1-1"
+
+schema:
+  log_level: list(debug|info|warning|error)
+  monitor_interval: int(10,300)
+  reattach_retries: int(0,10)
+  attach_delay: int(0,30)
+  notifications_enabled: bool
+  flap_warning_threshold: int(1,20)
+  flap_critical_threshold: int(2,50)
+  flap_window_seconds: int(60,3600)
+  flap_clear_seconds: int(60,7200)
+  devices:
+    - server: str
+      name: str
+      port: "int(1,65535)?"
+      busid: "str?"

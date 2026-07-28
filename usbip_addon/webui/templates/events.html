@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+
+{% block title %}Events - USB/IP ESP32 Client{% endblock %}
+
+{% block content %}
+<h2>Events</h2>
+
+<table id="events-table">
+    <thead>
+        <tr>
+            <th>Timestamp</th>
+            <th>Type</th>
+            <th>Device</th>
+            <th>Server</th>
+            <th>Detail</th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr><td colspan="5" class="loading">Loading...</td></tr>
+    </tbody>
+</table>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function() {
+    const ingressPath = "{{ ingress_path }}";
+
+    function escapeHtml(str) {
+        const div = document.createElement('div');
+        div.textContent = str;
+        return div.innerHTML;
+    }
+
+    function formatTimestamp(ts) {
+        if (!ts) return '-';
+        try {
+            const d = new Date(ts);
+            return d.toLocaleString();
+        } catch (e) {
+            return ts;
+        }
+    }
+
+    function eventTypeClass(type) {
+        if (type && (type.indexOf('fail') !== -1 || type.indexOf('lost') !== -1)) {
+            return 'event-error';
+        }
+        if (type && (type.indexOf('ok') !== -1 || type.indexOf('recovered') !== -1 || type === 'flap_cleared')) {
+            return 'event-ok';
+        }
+        if (type && type.indexOf('flap') !== -1) {
+            return 'event-warning';
+        }
+        return '';
+    }
+
+    function renderEvents(data) {
+        const tbody = document.querySelector('#events-table tbody');
+        if (!data.events || data.events.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="5">No events recorded</td></tr>';
+            return;
+        }
+        tbody.innerHTML = data.events.map(function(ev) {
+            const cls = eventTypeClass(ev.type);
+            return '<tr class="' + cls + '">' +
+                '<td>' + escapeHtml(formatTimestamp(ev.ts)) + '</td>' +
+                '<td>' + escapeHtml(ev.type || '') + '</td>' +
+                '<td>' + escapeHtml(ev.device || '') + '</td>' +
+                '<td>' + escapeHtml(ev.server || '') + '</td>' +
+                '<td>' + escapeHtml(ev.detail || '') + '</td>' +
+                '</tr>';
+        }).join('');
+    }
+
+    // Events already come in reverse chronological from API
+    UsbipPolling.start(ingressPath + '/api/events', renderEvents, 5000);
+})();
+</script>
+{% endblock %}

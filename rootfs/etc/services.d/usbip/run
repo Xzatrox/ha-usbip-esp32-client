@@ -1,0 +1,212 @@
+#!/command/with-contenv python3
+"""Attach service entry point for s6-overlay.
+
+Performs initial USB/IP device attachment at startup:
+1. Reads configuration from Supervisor API (with retries)
+2. Performs discovery on all configured devices
+3. For each device: health check → pre-detach → sysfs remount → attach with retries
+4. Sleeps forever to keep the service alive for s6 lifecycle management
+
+Requirements: 3.1, 3.2, 3.3, 3.5, 5.1, 5.2, 6.1, 6.7, 6.8, 9.2, 12.1, 12.6, 13.3
+"""
+
+import signal
+import sys
+import time
+
+from usbip_addon.config import AddonConfig
+from usbip_addon.discovery import DeviceDiscovery
+from usbip_addon.event_log import EventLog
+from usbip_addon.health import HealthChecker
+from usbip_addon.logging_config import configure_logging, get_logger
+from usbip_addon.server_lock import ServerLockManager
+from usbip_addon.usbip_client import UsbipClient
+
+# Configure logging with default level; will be updated after config read
+configure_logging("info")
+logger = get_logger("usbip_run")
+
+
+def main() -> None:
+    """Main attach service logic."""
+    # --- Step 1: Read config from Supervisor API (with retries) ---
+    config = AddonConfig()
+    try:
+        config.read_config(retries=3, delay=5.0)
+    except RuntimeError as e:
+        logger.error("Failed to read configuration: %s", e)
+        sys.exit(1)
+
+    # --- Step 2: Apply configured log level ---
+    log_level = config.log_level
+    configure_logging(log_level)
+    logger.info("Attach service starting (log_level=%s)", log_level)
+
+    # --- Step 3: Handle empty device list gracefully (Req 6.8) ---
+    devices = config.devices
+    if not devices:
+        logger.warning("No devices configured; attach service will idle")
+        _sleep_forever()
+        return
+
+    # --- Step 4: Create shared instances ---
+    usbip_client = UsbipClient()
+    health_checker = HealthChecker()
+    event_log = EventLog()
+    server_locks = ServerLockManager()
+    discovery = DeviceDiscovery()
+
+    attach_delay = config.attach_delay
+    reattach_retries = config.reattach_retries
+
+    # --- Step 5: Process each device ---
+    for i, device in enumerate(devices):
+        logger.info(
+            "Processing device '%s' (server=%s, busid=%s, port=%d)",
+            device.name,
+            device.server,
+            device.busid,
+            device.port,
+        )
+
+        with server_locks.lock(device.server):
+            # 5a. Perform discovery (Req 13.3)
+            disc_result = discovery.discover(
+                device.server,
+                port=device.port if device.port != 3240 else None,
+            )
+            if disc_result.success:
+                logger.info(
+                    "Discovery on %s: %d device(s) available",
+                    device.server,
+                    len(disc_result.devices),
+                )
+            else:
+                logger.warning(
+                    "Discovery failed for %s: %s",
+                    device.server,
+                    disc_result.error,
+                )
+
+            # 5b. Health check (Req 5.1, 5.2)
+            health_result = health_checker.check(
+                device.server, port=device.port
+            )
+            if not health_result.reachable:
+                logger.warning(
+                    "Health check failed for '%s' (%s:%d): %s — skipping device",
+                    device.name,
+                    device.server,
+                    device.port,
+                    health_result.error,
+                )
+                event_log.record(
+                    "attach_fail",
+                    device.name,
+                    device.server,
+                    f"Health check failed: {health_result.error}",
+                )
+                # Continue to next device (Req 9.2)
+                if i < len(devices) - 1:
+                    time.sleep(attach_delay)
+                continue
+
+            # 5c. Pre-detach — ignore failure (Req 3.1)
+            logger.debug(
+                "Pre-detaching %s (busid=%s)", device.server, device.busid
+            )
+            usbip_client.detach_remote(device.server, device.busid)
+
+            # 5d. Sysfs remount (Req 2.1, 2.3)
+            usbip_client.remount_sysfs()
+
+            # 5e. Attach with retries (Req 3.3)
+            attached = False
+            for attempt in range(1, reattach_retries + 1):
+                logger.info(
+                    "Attach attempt %d/%d for '%s' (%s, busid=%s)",
+                    attempt,
+                    reattach_retries,
+                    device.name,
+                    device.server,
+                    device.busid,
+                )
+                result = usbip_client.attach(
+                    device.server,
+                    busid=device.busid,
+                    port=device.port if device.port != 3240 else None,
+                )
+                if result.success:
+                    logger.info(
+                        "Device '%s' attached successfully (port=%s)",
+                        device.name,
+                        result.port,
+                    )
+                    event_log.record(
+                        "attach_ok",
+                        device.name,
+                        device.server,
+                        f"Attached to port {result.port}",
+                    )
+                    attached = True
+                    break
+
+                # Attach failed — log and retry
+                logger.warning(
+                    "Attach attempt %d/%d failed for '%s': %s",
+                    attempt,
+                    reattach_retries,
+                    device.name,
+                    result.stderr,
+                )
+                if attempt < reattach_retries:
+                    time.sleep(attach_delay)
+
+            if not attached:
+                logger.error(
+                    "All %d attach attempts failed for '%s' "
+                    "(server=%s, busid=%s): %s",
+                    reattach_retries,
+                    device.name,
+                    device.server,
+                    device.busid,
+                    result.stderr,
+                )
+                event_log.record(
+                    "attach_fail",
+                    device.name,
+                    device.server,
+                    f"All {reattach_retries} attempts failed: {result.stderr}",
+                )
+
+        # 5f. Inter-device delay (Req 3.5)
+        if i < len(devices) - 1:
+            logger.debug("Waiting %ds before next device", attach_delay)
+            time.sleep(attach_delay)
+
+    logger.info("Attach sequence complete for %d device(s)", len(devices))
+
+    # --- Step 6: Sleep forever (keep alive for s6) ---
+    _sleep_forever()
+
+
+def _sleep_forever() -> None:
+    """Sleep indefinitely to keep the service alive for s6-overlay.
+
+    Uses signal.pause() when available (Unix) for efficient waiting,
+    with a fallback to time.sleep loop.
+    """
+    logger.debug("Entering sleep-forever loop (service keep-alive)")
+    while True:
+        try:
+            signal.pause()
+        except AttributeError:
+            # signal.pause() not available on all platforms
+            time.sleep(3600)
+        except KeyboardInterrupt:
+            logger.info("Attach service received interrupt, exiting")
+            break
+
+
+if __name__ == "__main__":
+    main()

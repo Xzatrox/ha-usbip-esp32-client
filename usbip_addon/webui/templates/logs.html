@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+
+{% block title %}Logs - USB/IP ESP32 Client{% endblock %}
+
+{% block content %}
+<h2>Logs</h2>
+
+<div id="log-controls">
+    <label>
+        <input type="checkbox" id="auto-scroll" checked> Auto-scroll
+    </label>
+</div>
+
+<pre id="log-output" class="log-viewer">Loading logs...</pre>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function() {
+    const ingressPath = "{{ ingress_path }}";
+    const logOutput = document.getElementById('log-output');
+    const autoScrollCheckbox = document.getElementById('auto-scroll');
+
+    function renderLogs(data) {
+        if (!data.logs || data.logs.length === 0) {
+            logOutput.textContent = 'No log entries available.';
+            return;
+        }
+        logOutput.textContent = data.logs.join('\n');
+
+        if (autoScrollCheckbox.checked) {
+            logOutput.scrollTop = logOutput.scrollHeight;
+        }
+    }
+
+    // Poll logs every 3 seconds per Req 16.5
+    UsbipPolling.start(ingressPath + '/api/logs', renderLogs, 3000);
+})();
+</script>
+{% endblock %}

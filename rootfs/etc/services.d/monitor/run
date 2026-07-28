@@ -1,0 +1,325 @@
+#!/command/with-contenv python3
+"""Monitor service entry point for s6-overlay.
+
+Periodically checks that all configured USB/IP devices are still attached.
+When a device is missing, performs health check, sysfs remount, and reattach
+with retries. Tracks flapping state and sends notifications on device events.
+
+Flow:
+1. Configure logging, read initial config
+2. Wait 15 seconds initial delay
+3. Create shared instances
+4. Loop:
+   a. Re-read config, apply log_level
+   b. List attached ports via `usbip port`
+   c. Detect missing devices (configured but not in port list)
+   d. For each missing device (with server lock):
+      - Record device_lost event, send notification
+      - For each retry attempt: health check → sysfs remount → attach
+      - On success: record reattach_ok, recovery in flapping tracker, send notification
+      - On failure: record reattach_fail, send failure notification
+   e. Evaluate flapping for all devices, send notifications on upward transitions
+   f. Check flap clearance for stable devices
+   g. Sleep monitor_interval
+
+Requirements: 4.1, 4.2, 4.3, 4.4, 4.5, 5.3, 6.2, 6.9, 8.3, 8.5, 9.3, 10.1-10.3, 14.1-14.6
+"""
+
+import sys
+import time
+
+from usbip_addon.config import AddonConfig
+from usbip_addon.event_log import EventLog
+from usbip_addon.flapping import FlappingDetector
+from usbip_addon.health import HealthChecker
+from usbip_addon.logging_config import configure_logging, get_logger
+from usbip_addon.notifications import NotificationManager
+from usbip_addon.server_lock import ServerLockManager
+from usbip_addon.usbip_client import UsbipClient
+
+# Configure logging with default level; updated after config read
+configure_logging("info")
+logger = get_logger("monitor")
+
+
+def detect_missing_devices(config, attached_ports):
+    """Detect configured devices not present in the attached port list.
+
+    Matches each configured device against attached ports by server IP
+    and busid. A device is considered missing if no attached port entry
+    matches both its server and busid.
+
+    Args:
+        config: AddonConfig instance with parsed devices.
+        attached_ports: List of PortEntry from usbip port output.
+
+    Returns:
+        List of DeviceEntry instances that are missing.
+
+    Requirements: 4.3, 9.3
+    """
+    # Build a set of (server, busid) tuples from attached ports
+    attached_set = {(p.server, p.busid) for p in attached_ports}
+
+    missing = []
+    for device in config.devices:
+        if (device.server, device.busid) not in attached_set:
+            missing.append(device)
+
+    return missing
+
+
+def reattach_device(device, config, usbip_client, health_checker, event_log):
+    """Attempt to reattach a missing device with retries.
+
+    For each retry attempt:
+    1. Perform health check (failure counts as an attempt)
+    2. Remount sysfs
+    3. Attempt attach
+
+    Args:
+        device: DeviceEntry to reattach.
+        config: AddonConfig for retry settings.
+        usbip_client: UsbipClient instance.
+        health_checker: HealthChecker instance.
+        event_log: EventLog instance.
+
+    Returns:
+        True if reattach succeeded, False if all retries exhausted.
+
+    Requirements: 4.3, 4.4, 4.5, 5.3, 8.3, 8.5
+    """
+    max_retries = config.reattach_retries
+    retry_delay = config.attach_delay
+
+    for attempt in range(1, max_retries + 1):
+        # Health check before each attempt (Req 5.3)
+        health_result = health_checker.check(device.server, port=device.port)
+        if not health_result.reachable:
+            logger.warning(
+                "Health check failed for '%s' (%s:%d) on attempt %d/%d: %s",
+                device.name,
+                device.server,
+                device.port,
+                attempt,
+                max_retries,
+                health_result.error,
+            )
+            event_log.record(
+                "reattach_attempt",
+                device.name,
+                device.server,
+                f"Attempt {attempt}/{max_retries}: health check failed - {health_result.error}",
+            )
+            if attempt < max_retries:
+                time.sleep(retry_delay)
+            continue
+
+        # Sysfs remount (Req 2.3)
+        usbip_client.remount_sysfs()
+
+        # Attempt attach
+        result = usbip_client.attach(
+            device.server,
+            busid=device.busid,
+            port=device.port if device.port != 3240 else None,
+        )
+
+        event_log.record(
+            "reattach_attempt",
+            device.name,
+            device.server,
+            f"Attempt {attempt}/{max_retries}: attach {'succeeded' if result.success else 'failed'}",
+        )
+
+        if result.success:
+            logger.info(
+                "Reattached device '%s' (server=%s, busid=%s, port=%s)",
+                device.name,
+                device.server,
+                device.busid,
+                result.port,
+            )
+            return True
+
+        # Attach failed (Req 8.5)
+        logger.warning(
+            "Reattach attempt %d/%d failed for '%s' (server=%s): %s",
+            attempt,
+            max_retries,
+            device.name,
+            device.server,
+            result.stderr,
+        )
+
+        if attempt < max_retries:
+            time.sleep(retry_delay)
+
+    return False
+
+
+def main() -> None:
+    """Main monitor service logic."""
+    # --- Step 1: Read initial config ---
+    config = AddonConfig()
+    try:
+        config.read_config(retries=3, delay=5.0)
+    except RuntimeError as e:
+        logger.error("Failed to read initial configuration: %s", e)
+        sys.exit(1)
+
+    # Apply configured log level
+    configure_logging(config.log_level)
+    logger.info(
+        "Monitor service starting (log_level=%s, interval=%ds, retries=%d)",
+        config.log_level,
+        config.monitor_interval,
+        config.reattach_retries,
+    )
+
+    # --- Step 2: Wait 15 seconds initial delay (Req 4.2) ---
+    logger.debug("Waiting 15s for initial device attachment to complete...")
+    time.sleep(15)
+
+    # --- Step 3: Create shared instances ---
+    usbip_client = UsbipClient()
+    health_checker = HealthChecker()
+    event_log = EventLog()
+    notifier = NotificationManager(config)
+    flapping = FlappingDetector(config)
+    server_locks = ServerLockManager()
+
+    # --- Step 4: Monitor loop ---
+    while True:
+        try:
+            # 4a. Re-read config at beginning of each cycle (Req 6.2)
+            try:
+                config.read_config(retries=1, delay=0)
+            except RuntimeError:
+                logger.warning(
+                    "Failed to re-read config this cycle, using cached values"
+                )
+
+            # Apply log_level changes dynamically (Req 6.9)
+            configure_logging(config.log_level)
+
+            # 4b. List attached ports (Req 4.1)
+            attached_ports = usbip_client.list_ports()
+            logger.debug(
+                "Monitor check: %d port(s) attached", len(attached_ports)
+            )
+
+            # 4c. Detect missing devices (Req 4.3, 9.3)
+            missing = detect_missing_devices(config, attached_ports)
+
+            if missing:
+                logger.warning(
+                    "%d device(s) missing: %s",
+                    len(missing),
+                    ", ".join(f"'{d.name}'" for d in missing),
+                )
+
+            # 4d. Process each missing device
+            for device in missing:
+                with server_locks.lock(device.server):
+                    # Record device_lost event (Req 8.3)
+                    event_log.record(
+                        "device_lost",
+                        device.name,
+                        device.server,
+                        f"Device no longer attached (busid={device.busid})",
+                    )
+
+                    # Send loss notification (Req 10.1)
+                    notifier.notify_device_lost(device.name, device.server)
+
+                    # Attempt reattach with retries
+                    success = reattach_device(
+                        device, config, usbip_client, health_checker, event_log
+                    )
+
+                    if success:
+                        # Record reattach_ok event (Req 4.5, 8.3)
+                        event_log.record(
+                            "reattach_ok",
+                            device.name,
+                            device.server,
+                            "Device successfully reattached",
+                        )
+
+                        # Record recovery in flapping tracker (Req 14.1)
+                        flapping.record_recovery(device.key)
+
+                        # Send recovery notification (Req 10.2)
+                        notifier.notify_device_recovered(
+                            device.name, device.server
+                        )
+                    else:
+                        # Record reattach_fail event (Req 4.4, 8.3)
+                        event_log.record(
+                            "reattach_fail",
+                            device.name,
+                            device.server,
+                            f"All {config.reattach_retries} reattach attempts failed",
+                        )
+
+                        # Send failure notification (Req 10.3)
+                        notifier.notify_reattach_failed(
+                            device.name, device.server
+                        )
+
+            # 4e. Evaluate flapping state for all devices (Req 14.2-14.4, 14.6)
+            for device in config.devices:
+                transition = flapping.evaluate(device.key)
+                if transition is not None:
+                    # Upward transition detected — send notification
+                    level_name = transition.value  # "warning" or "critical"
+                    logger.warning(
+                        "Flapping %s for device '%s' (server=%s)",
+                        level_name,
+                        device.name,
+                        device.server,
+                    )
+
+                    # Record flap event
+                    event_type = f"flap_{level_name}"
+                    event_log.record(
+                        event_type,
+                        device.name,
+                        device.server,
+                        f"Flapping state transitioned to {level_name}",
+                    )
+
+                    # Send flap notification
+                    notifier.notify_flapping(
+                        device.name, device.server, level_name, 0
+                    )
+
+            # 4f. Check flap clearance for stable devices (Req 14.5)
+            for device in config.devices:
+                cleared = flapping.check_clear(device.key)
+                if cleared:
+                    logger.info(
+                        "Flapping cleared for device '%s' (server=%s)",
+                        device.name,
+                        device.server,
+                    )
+                    event_log.record(
+                        "flap_cleared",
+                        device.name,
+                        device.server,
+                        "Device stable, flapping state cleared",
+                    )
+
+        except (SystemExit, KeyboardInterrupt):
+            logger.info("Monitor service shutting down.")
+            raise
+        except Exception:
+            logger.exception("Unhandled error in monitor loop")
+
+        # 4g. Sleep monitor_interval (Req 4.1)
+        time.sleep(config.monitor_interval)
+
+
+if __name__ == "__main__":
+    main()

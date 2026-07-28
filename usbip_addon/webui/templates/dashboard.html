@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - USB/IP ESP32 Client{% endblock %}
+
+{% block content %}
+<h2>Dashboard</h2>
+
+<section id="device-status">
+    <h3>Device Status</h3>
+    <table id="status-table">
+        <thead>
+            <tr>
+                <th>Device</th>
+                <th>Server</th>
+                <th>Status</th>
+                <th>Port</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr><td colspan="4" class="loading">Loading...</td></tr>
+        </tbody>
+    </table>
+</section>
+
+<section id="server-health">
+    <h3>Server Health</h3>
+    <table id="health-table">
+        <thead>
+            <tr>
+                <th>Server</th>
+                <th>Reachable</th>
+                <th>Latency</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr><td colspan="3" class="loading">Loading...</td></tr>
+        </tbody>
+    </table>
+</section>
+
+<section id="flapping-warnings">
+    <h3>Flapping Warnings</h3>
+    <div id="flapping-container">
+        <p class="loading">Loading...</p>
+    </div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function() {
+    const ingressPath = "{{ ingress_path }}";
+
+    function renderStatus(data) {
+        const tbody = document.querySelector('#status-table tbody');
+        if (!data.devices || data.devices.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="4">No devices configured</td></tr>';
+            return;
+        }
+        tbody.innerHTML = data.devices.map(function(d) {
+            const statusClass = d.attached ? 'status-ok' : 'status-error';
+            const statusText = d.attached ? 'Attached' : 'Detached';
+            const portText = d.attached_port !== null ? d.attached_port : '-';
+            return '<tr>' +
+                '<td>' + escapeHtml(d.name) + '</td>' +
+                '<td>' + escapeHtml(d.server) + ':' + d.port + '</td>' +
+                '<td class="' + statusClass + '">' + statusText + '</td>' +
+                '<td>' + portText + '</td>' +
+                '</tr>';
+        }).join('');
+    }
+
+    function renderHealth(data) {
+        const tbody = document.querySelector('#health-table tbody');
+        if (!data.devices || data.devices.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="3">No devices configured</td></tr>';
+            return;
+        }
+        tbody.innerHTML = data.devices.map(function(d) {
+            const h = d.health;
+            const reachClass = h.reachable ? 'status-ok' : 'status-error';
+            const reachText = h.reachable ? 'Online' : 'Offline';
+            const latency = h.latency_ms !== null ? h.latency_ms.toFixed(1) + ' ms' : '-';
+            return '<tr>' +
+                '<td>' + escapeHtml(d.server) + ':' + d.port + '</td>' +
+                '<td class="' + reachClass + '">' + reachText + '</td>' +
+                '<td>' + latency + '</td>' +
+                '</tr>';
+        }).join('');
+    }
+
+    function renderFlapping(data) {
+        const container = document.getElementById('flapping-container');
+        if (!data.devices || data.devices.length === 0) {
+            container.innerHTML = '<p>No devices configured</p>';
+            return;
+        }
+        // Filter devices that have flapping info (check events for flap_warning/flap_critical)
+        // For now, show all devices and indicate no active warnings
+        const warnings = data.devices.filter(function(d) {
+            return d.health && !d.health.reachable;
+        });
+        if (warnings.length === 0) {
+            container.innerHTML = '<p class="status-ok">No active flapping warnings</p>';
+        } else {
+            container.innerHTML = warnings.map(function(d) {
+                return '<div class="flap-warning">' +
+                    '<strong>' + escapeHtml(d.name) + '</strong> (' + escapeHtml(d.server) + ') - Connectivity issues detected' +
+                    '</div>';
+            }).join('');
+        }
+    }
+
+    function updateDashboard(data) {
+        renderStatus(data);
+        renderHealth(data);
+        renderFlapping(data);
+    }
+
+    function escapeHtml(str) {
+        const div = document.createElement('div');
+        div.textContent = str;
+        return div.innerHTML;
+    }
+
+    UsbipPolling.start(ingressPath + '/api/status', updateDashboard, 5000);
+})();
+</script>
+{% endblock %}

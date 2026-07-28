@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}USB/IP ESP32 Client{% endblock %}</title>
+    <link rel="stylesheet" href="{{ ingress_path }}/static/style.css">
+</head>
+<body>
+    <header>
+        <h1>USB/IP ESP32 Client</h1>
+        <nav>
+            <a href="{{ ingress_path }}/" class="{% if request.path == '/' %}active{% endif %}">Dashboard</a>
+            <a href="{{ ingress_path }}/devices" class="{% if request.path == '/devices' %}active{% endif %}">Devices</a>
+            <a href="{{ ingress_path }}/logs" class="{% if request.path == '/logs' %}active{% endif %}">Logs</a>
+            <a href="{{ ingress_path }}/events" class="{% if request.path == '/events' %}active{% endif %}">Events</a>
+        </nav>
+    </header>
+    <main>
+        {% block content %}{% endblock %}
+    </main>
+    <footer>
+        <p>USB/IP ESP32 Client Add-on</p>
+    </footer>
+    <script src="{{ ingress_path }}/static/polling.js"></script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

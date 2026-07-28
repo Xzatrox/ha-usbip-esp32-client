@@ -1,0 +1,32 @@
+#!/command/with-contenv python3
+"""WebUI service entry point for s6-overlay.
+
+Starts the Flask web application on port 8099, accessible via
+Home Assistant Ingress for status monitoring, device management,
+and event history.
+
+Requirements: 12.1, 12.6, 16.1
+"""
+
+import logging
+
+from usbip_addon.logging_config import configure_logging, get_logger
+from usbip_addon.webui.app import app
+
+# Configure logging for the WebUI service
+configure_logging("info")
+logger = get_logger("webui")
+
+
+def main() -> None:
+    """Start the Flask application."""
+    logger.info("WebUI service starting on port 8099")
+
+    # Suppress default Flask/Werkzeug request logging noise
+    logging.getLogger("werkzeug").setLevel(logging.WARNING)
+
+    app.run(host="0.0.0.0", port=8099)
+
+
+if __name__ == "__main__":
+    main()

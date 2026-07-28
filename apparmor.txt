@@ -1,0 +1,42 @@
+#include <tunables/global>
+
+profile usbip-esp32-client flags=(attach_disconnected,mediate_deleted) {
+  #include <abstractions/base>
+
+  # Allow modprobe for kernel module loading
+  /sbin/modprobe ix,
+  /usr/sbin/modprobe ix,
+  /lib/modules/** r,
+
+  # Allow mount for sysfs remount
+  /bin/mount ix,
+  /usr/bin/mount ix,
+  mount fstype=sysfs,
+
+  # Allow usbip binary execution
+  /usr/sbin/usbip ix,
+  /usr/bin/usbip ix,
+  /sbin/usbip ix,
+
+  # Allow access to sysfs for VHCI operations
+  /sys/** rw,
+  /sys/devices/platform/vhci_hcd.0/** rw,
+
+  # Allow access to VHCI device
+  /dev/vhci rw,
+
+  # Allow network access for USB/IP protocol
+  network inet stream,
+  network inet6 stream,
+
+  # Allow reading proc filesystem
+  /proc/** r,
+
+  # Allow Python execution
+  /usr/bin/python3* ix,
+  /usr/lib/python3*/** r,
+  /usr/local/lib/python3*/** r,
+
+  # Allow tmp access for event log
+  /tmp/** rw,
+}
