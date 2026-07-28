@@ -6,6 +6,7 @@ slug: "usbip-esp32-client"
 url: "https://github.com/home-assistant/addons"
 startup: "services"
 boot: "auto"
+init: false
 
 arch:
   - aarch64

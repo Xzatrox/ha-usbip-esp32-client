@@ -10,10 +10,17 @@ RUN apk add --no-cache \
     kmod \
     && rm -rf /var/cache/apk/*
 
-# Copy add-on source (s6-overlay scripts and rootfs structure)
+# Copy root filesystem (s6-overlay scripts)
 COPY rootfs /
+
+# Ensure all s6 scripts are executable
+RUN chmod +x /etc/cont-init.d/*.py \
+    && chmod +x /etc/cont-finish.d/*.py \
+    && chmod +x /etc/services.d/*/run \
+    && chmod +x /etc/services.d/*/finish
 
 # Install Python package
 COPY usbip_addon /usr/local/lib/python3.11/usbip_addon/
 
-# s6-overlay will handle service startup
+# Make usbip_addon importable
+ENV PYTHONPATH=/usr/local/lib/python3.11
