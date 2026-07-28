@@ -107,12 +107,41 @@ def main():
     # Step 3: Check VHCI platform device
     if os.path.isdir(SYSFS_PLATFORM_PATH):
         logger.info("VHCI platform device found at %s", SYSFS_PLATFORM_PATH)
-        # Quick test
+
+        # Try to read status file directly
+        status_path = os.path.join(SYSFS_PLATFORM_PATH, "status")
+        try:
+            with open(status_path, "r") as f:
+                lines = f.readlines()
+            logger.info("VHCI status has %d lines, first: %s", len(lines), lines[0].strip() if lines else "(empty)")
+        except OSError as e:
+            logger.error("Cannot read %s: %s", status_path, e)
+
+        # List contents
+        try:
+            entries = os.listdir(SYSFS_PLATFORM_PATH)
+            logger.info("VHCI dir contents: %s", entries[:20])
+        except OSError as e:
+            logger.error("Cannot list %s: %s", SYSFS_PLATFORM_PATH, e)
+
+        # Try usbip port
         rc, out, err = run(["usbip", "port"])
         if rc == 0:
-            logger.info("usbip port works!")
+            logger.info("usbip port works! output: %s", out.strip()[:200])
         else:
             logger.warning("usbip port still fails: %s", err.strip()[:200])
+
+        # Try strace-like: what file does usbip try to open?
+        rc, out, err = run(["ls", "-la", status_path])
+        logger.info("status file: %s", out.strip())
+
+        # Check if there are multiple vhci_hcd instances
+        try:
+            platform = os.listdir("/sys/devices/platform")
+            vhci_all = [e for e in platform if "vhci" in e]
+            logger.info("All VHCI platform devices: %s", vhci_all)
+        except OSError:
+            pass
     else:
         logger.error("VHCI platform device NOT found after remount!")
         diagnose()
