@@ -3,40 +3,66 @@
 profile usbip-esp32-client flags=(attach_disconnected,mediate_deleted) {
   #include <abstractions/base>
 
-  # Allow modprobe for kernel module loading
+  # Core process and signal handling
+  file,
+  signal (send) set=(kill,term,int,hup,cont),
+
+  # Required capabilities for USB/IP and sysfs operations
+  capability net_admin,
+  capability sys_admin,
+  capability sys_module,
+  capability sys_rawio,
+
+  # Required for remounting sysfs in container context
+  mount,
+
+  # s6-overlay runtime
+  /init ix,
+  /bin/** ix,
+  /usr/bin/** ix,
+  /sbin/** ix,
+  /run/{s6,s6-rc*,service}/** ix,
+  /package/** ix,
+  /command/** ix,
+  /etc/services.d/** rwix,
+  /etc/cont-init.d/** rwix,
+  /etc/cont-finish.d/** rwix,
+  /run/{,**} rwk,
+  /dev/{null,tty} rw,
+
+  # Bashio and Python runtime
+  /usr/lib/bashio/** ix,
+  /usr/bin/python3* ix,
+  /usr/lib/python3*/** mr,
+  /usr/local/lib/python3*/** r,
+  /usr/local/bin/** ix,
+
+  # Runtime data and config
+  /tmp/** rwk,
+  /data/** rw,
+  /config/** rw,
+
+  # Kernel modules
   /sbin/modprobe ix,
   /usr/sbin/modprobe ix,
+  /etc/modprobe.d/** r,
+  /usr/lib/modprobe.d/** r,
+  /run/modprobe.d/** r,
   /lib/modules/** r,
+  /usr/lib/modules/** r,
 
-  # Allow mount for sysfs remount
-  /bin/mount ix,
-  /usr/bin/mount ix,
-  mount fstype=sysfs,
-
-  # Allow usbip binary execution
-  /usr/sbin/usbip ix,
-  /usr/bin/usbip ix,
-  /sbin/usbip ix,
-
-  # Allow access to sysfs for VHCI operations
+  # USB/IP and kernel interfaces
   /sys/** rw,
   /sys/devices/platform/vhci_hcd.0/** rw,
-
-  # Allow access to VHCI device
   /dev/vhci rw,
-
-  # Allow network access for USB/IP protocol
-  network inet stream,
-  network inet6 stream,
-
-  # Allow reading proc filesystem
+  /dev/bus/usb/** rw,
   /proc/** r,
 
-  # Allow Python execution
-  /usr/bin/python3* ix,
-  /usr/lib/python3*/** r,
-  /usr/local/lib/python3*/** r,
+  # Networking for USB/IP operations
+  network inet,
+  network inet6,
 
-  # Allow tmp access for event log
-  /tmp/** rw,
+  # Logging
+  /dev/kmsg rw,
+  /var/log/** rw,
 }
