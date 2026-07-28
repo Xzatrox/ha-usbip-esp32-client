@@ -1,7 +1,7 @@
 ---
 name: "USB/IP ESP32 Client"
 description: "Attach remote USB devices from ESP32-S3 USB/IP servers over WiFi"
-version: "0.7.0"
+version: "0.8.0"
 slug: "usbip-esp32-client"
 url: "https://github.com/home-assistant/addons"
 startup: "services"
@@ -26,7 +26,7 @@ devices:
 kernel_modules:
   - vhci-hcd
 
-apparmor: true
+apparmor: false
 hassio_api: true
 homeassistant_api: true
 hassio_role: manager
