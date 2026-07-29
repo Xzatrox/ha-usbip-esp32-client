@@ -117,12 +117,39 @@ def main():
         except OSError as e:
             logger.error("Cannot read %s: %s", status_path, e)
 
-        # List contents
-        try:
-            entries = os.listdir(SYSFS_PLATFORM_PATH)
-            logger.info("VHCI dir contents: %s", entries[:20])
-        except OSError as e:
-            logger.error("Cannot list %s: %s", SYSFS_PLATFORM_PATH, e)
+        # Check the path that usbip tool actually uses
+        driver_path = "/sys/bus/platform/drivers/vhci_hcd"
+        logger.info("%s exists: %s", driver_path, os.path.isdir(driver_path))
+        if os.path.isdir(driver_path):
+            try:
+                entries = os.listdir(driver_path)
+                logger.info("%s contents: %s", driver_path, entries)
+            except OSError as e:
+                logger.error("Cannot list %s: %s", driver_path, e)
+        
+        # Also check /sys/bus/platform/devices
+        dev_path = "/sys/bus/platform/devices"
+        if os.path.isdir(dev_path):
+            try:
+                entries = os.listdir(dev_path)
+                vhci = [e for e in entries if "vhci" in e]
+                logger.info("%s vhci entries: %s", dev_path, vhci)
+            except OSError as e:
+                logger.error("Cannot list %s: %s", dev_path, e)
+
+        # Check /sys/class
+        class_path = "/sys/class/usbip"
+        logger.info("%s exists: %s", class_path, os.path.isdir(class_path))
+
+        # Try strace equivalent - run usbip with strace if available
+        rc, out, err = run(["strace", "-e", "openat", "-f", "usbip", "port"])
+        if rc != -1:
+            # Filter for vhci-related opens
+            relevant = [l for l in err.splitlines() if "vhci" in l.lower() or "ENOENT" in l or "platform" in l]
+            for line in relevant[:10]:
+                logger.info("strace: %s", line)
+        else:
+            logger.info("strace not available")
 
         # Try usbip port
         rc, out, err = run(["usbip", "port"])
@@ -130,18 +157,6 @@ def main():
             logger.info("usbip port works! output: %s", out.strip()[:200])
         else:
             logger.warning("usbip port still fails: %s", err.strip()[:200])
-
-        # Try strace-like: what file does usbip try to open?
-        rc, out, err = run(["ls", "-la", status_path])
-        logger.info("status file: %s", out.strip())
-
-        # Check if there are multiple vhci_hcd instances
-        try:
-            platform = os.listdir("/sys/devices/platform")
-            vhci_all = [e for e in platform if "vhci" in e]
-            logger.info("All VHCI platform devices: %s", vhci_all)
-        except OSError:
-            pass
     else:
         logger.error("VHCI platform device NOT found after remount!")
         diagnose()

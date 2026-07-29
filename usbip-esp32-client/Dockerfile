@@ -8,6 +8,7 @@ RUN apk add --no-cache \
     linux-tools-usbip \
     kmod \
     hwids-usb \
+    strace \
     && rm -rf /var/cache/apk/*
 
 # Copy root filesystem (s6-overlay scripts)
